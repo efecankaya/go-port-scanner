@@ -18,8 +18,21 @@ func scanPort(ip string, port_start int, port_end int, timeout time.Duration, wg
 		if err != nil {
 			continue
 		}
-		fmt.Printf("Port %d is open\n", scan_port)
+
 		defer conn.Close()
+		// Set a deadline for reading data from the connection
+		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+
+		// Attempt to read data from the connection
+		var buf [1024]byte
+		n, err := conn.Read(buf[:])
+		if err != nil {
+			// If no data is received, print that the port is open
+			fmt.Printf("Port %d is open.\n", scan_port)
+			return
+		}
+
+		fmt.Printf("Port %d is open. Banner: %s\n", scan_port, strings.TrimSpace(string(buf[:n])))
 	}
 }
 
