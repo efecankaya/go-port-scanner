@@ -80,7 +80,7 @@ func main() {
 			go scanPort(IPaddress[0], start_port, start_port+thread_load, timeout, &wg)
 			start_port += thread_load
 		} else {
-			go scanPort(IPaddress[0], start_port, thread_mod, timeout, &wg)
+			go scanPort(IPaddress[0], start_port, start_port+thread_mod, timeout, &wg)
 		}
 	}
 	wg.Wait()
