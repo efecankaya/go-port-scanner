@@ -4,49 +4,65 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"strings"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/efecankaya/go-port-scanner/internal/modules/banner"
 	"github.com/valyala/fasthttp"
 )
 
 func ScanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
 	defer wg.Done()
 	client := &fasthttp.Client{}
-	client_header := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-	for i := 0; i < len(targets); i++ {
-		conn, err := fasthttp.DialDualStackTimeout(targets[i], timeout)
+	clientHeader := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+	for _, target := range targets {
+		host, portStr, err := net.SplitHostPort(target)
+		if err != nil {
+			//fmt.Printf("Invalid target format: %s\n", target)
+			continue
+		}
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			//fmt.Printf("Invalid port format: %s\n", portStr)
+			continue
+		}
+		conn, err := net.DialTimeout("tcp4", target, timeout)
 		if err != nil {
 			//Might handle this error better
 			continue
 		}
-		fmt.Printf("Discovered open port %s/tcp on %s\n", targets[i][strings.LastIndex(targets[i], ":")+1:], targets[i][:strings.LastIndex(targets[i], ":")])
-		//Commuting with target happens here
+		fmt.Printf("Discovered open port %d/tcp on %s\n", port, host)
 
-		req_target := fasthttp.AcquireRequest()
+		if port == 80 || port == 443 {
+			// HTTP(S) request
+			req := fasthttp.AcquireRequest()
+			req.SetRequestURI("http://" + target)
+			req.Header.Set("User-Agent", clientHeader)
+			resp := fasthttp.AcquireResponse()
 
-		req_target.SetRequestURI("http://" + targets[i])
-		req_target.Header.Set("User-Agent", client_header)
-		resp_target := fasthttp.AcquireResponse()
+			if err := client.DoTimeout(req, resp, timeout); err != nil {
+				//Handle error better
+				continue
+			}
+			if resp.StatusCode() != fasthttp.StatusOK {
+				//Handle different status codes -- Redirect etc.
+				continue
+			}
 
-		if err := client.DoTimeout(req_target, resp_target, 6*timeout); err != nil {
-			//Handle error better
-			continue
+			responsePacket, err := io.ReadAll(bytes.NewReader(resp.Body()))
+			if err != nil {
+				//Handle error better
+				continue
+			}
+			fmt.Printf("Response from %s: %s\n", target, responsePacket)
+			fasthttp.ReleaseResponse(resp)
+			fasthttp.ReleaseRequest(req)
+		} else {
+			// Grabbing banner
+			banner.GrabBanner(conn, timeout)
 		}
-		if resp_target.StatusCode() != fasthttp.StatusOK {
-			//Handle different status codes -- Redirect etc.
-			continue
-		}
-
-		response_packet, err := io.ReadAll(bytes.NewReader(resp_target.Body()))
-		if err != nil {
-			//Handle error better
-			continue
-		}
-		fmt.Printf("Response from %s: %s\n", targets[i], response_packet)
-		fasthttp.ReleaseResponse(resp_target)
-		fasthttp.ReleaseRequest(req_target)
 		conn.Close()
 	}
 }
