@@ -2,10 +2,8 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"flag"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"slices"
@@ -14,99 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/valyala/fasthttp"
+	"github.com/efecankaya/go-port-scanner/internal/scanner"
+	"github.com/efecankaya/go-port-scanner/internal/utils"
 )
-
-// Find IP range provided by the user
-func CIDRRange(cidr string) ([]string, error) {
-	iterate_IP := func(ip net.IP) {
-		for j := len(ip) - 1; j >= 0; j-- {
-			ip[j]++
-			if ip[j] > 0 {
-				break
-			}
-		}
-	}
-	//Parse IP address
-	ip, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return nil, err
-	}
-
-	var ips []string
-	for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); iterate_IP(ip) {
-		ips = append(ips, ip.String())
-	}
-	return ips, nil
-}
-
-// Distribute the entirety of ports in to threads
-func port_range_distribute(IP_Count int, port_array []int, thread_count int) []int {
-	port_amount := IP_Count * len(port_array)
-	thread_load := port_amount / thread_count
-	thread_mod := port_amount % thread_count
-
-	//Create port load per thread slice
-	var port_range_dist []int
-	if thread_load == 0 {
-		port_range_dist = make([]int, thread_mod)
-		for i := 0; i < len(port_range_dist); i++ {
-			port_range_dist[i] = 1
-		}
-	} else {
-		port_range_dist = make([]int, thread_count)
-		for i := 0; i < thread_count; i++ {
-			if thread_mod > 0 {
-				port_range_dist[i] = thread_load + 1
-				thread_mod -= 1
-			} else {
-				port_range_dist[i] = thread_load
-			}
-		}
-	}
-	return port_range_dist
-}
-
-// Scan ports for the given by the user
-func scanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
-	defer wg.Done()
-	client := &fasthttp.Client{}
-	client_header := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-	for i := 0; i < len(targets); i++ {
-		conn, err := fasthttp.DialDualStackTimeout(targets[i], timeout)
-		if err != nil {
-			//Might handle this error better
-			continue
-		}
-		fmt.Printf("Discovered open port %s/tcp on %s\n", targets[i][strings.LastIndex(targets[i], ":")+1:], targets[i][:strings.LastIndex(targets[i], ":")])
-		//Commuting with target happens here
-
-		req_target := fasthttp.AcquireRequest()
-
-		req_target.SetRequestURI("http://" + targets[i])
-		req_target.Header.Set("User-Agent", client_header)
-		resp_target := fasthttp.AcquireResponse()
-
-		if err := client.DoTimeout(req_target, resp_target, 6*timeout); err != nil {
-			//Handle error better
-			continue
-		}
-		if resp_target.StatusCode() != fasthttp.StatusOK {
-			//Handle different status codes -- Redirect etc.
-			continue
-		}
-
-		response_packet, err := io.ReadAll(bytes.NewReader(resp_target.Body()))
-		if err != nil {
-			//Handle error better
-			continue
-		}
-		fmt.Printf("Response from %s: %s\n", targets[i], response_packet)
-		fasthttp.ReleaseResponse(resp_target)
-		fasthttp.ReleaseRequest(req_target)
-		conn.Close()
-	}
-}
 
 func main() {
 
@@ -121,16 +29,6 @@ func main() {
 		wg               sync.WaitGroup
 	)
 
-	validateFlags := func(flag1 string, flag2 string, flag3 string) error {
-		if flag1 != "" && flag2 != "" && flag3 != "" { //Mutual Exclusion
-			return fmt.Errorf("mutually Exclusive flags are used")
-		}
-		if flag1 == "" && flag2 == "" && flag3 == "" { //No Input
-			return fmt.Errorf("no input is given")
-		}
-		return nil
-	}
-
 	flag.StringVar(&usr_domain_input, "d", "", "Domain Name")
 	flag.StringVar(&usr_inputIP, "ip", "", "CIDR IP range")
 	flag.StringVar(&usr_domain_file, "df", "", "Domains to be scanned from file")
@@ -139,7 +37,7 @@ func main() {
 	flag.IntVar(&usr_timeout, "time", 1, "Seconds of Timeout")
 	flag.Parse()
 
-	if err := validateFlags(usr_domain_input, usr_inputIP, usr_domain_file); err != nil {
+	if err := utils.ValidateFlags(usr_domain_input, usr_inputIP, usr_domain_file); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		flag.Usage()
 		return
@@ -204,7 +102,7 @@ func main() {
 	)
 
 	if usr_inputIP != "" { //Perform CIDR IP scan
-		IP_addresses, err_parse = CIDRRange(usr_inputIP)
+		IP_addresses, err_parse = utils.CIDRRange(usr_inputIP)
 		if err_parse != nil {
 			fmt.Println(err_parse)
 			return
@@ -248,11 +146,11 @@ func main() {
 			targets = append(targets, target)
 		}
 	}
-	var port_range_dist []int = port_range_distribute(len(IP_addresses), port_input, thread_count)
+	var port_range_dist []int = utils.PortRangeDistribute(len(IP_addresses), port_input, thread_count)
 	port_index := 0
 	for i := 0; i < len(port_range_dist); i++ {
 		wg.Add(1)
-		go scanPort(targets[port_index:port_index+port_range_dist[i]], time.Duration(usr_timeout)*time.Second, &wg)
+		go scanner.ScanPort(targets[port_index:port_index+port_range_dist[i]], time.Duration(usr_timeout)*time.Second, &wg)
 		port_index += port_range_dist[i]
 	}
 	wg.Wait()
