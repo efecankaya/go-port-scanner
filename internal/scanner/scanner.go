@@ -16,7 +16,9 @@ import (
 
 func ScanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
 	defer wg.Done()
-	client := &fasthttp.Client{}
+	client := &fasthttp.Client{
+		MaxConnDuration: timeout,
+	}
 	clientHeader := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 	for _, target := range targets {
 		host, portStr, err := net.SplitHostPort(target)
@@ -50,7 +52,18 @@ func ScanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
 			}
 			if resp_target.StatusCode() != fasthttp.StatusOK {
 				//Handle different status codes -- Redirect etc.
-				continue
+				if 300 <= resp_target.StatusCode() && resp_target.StatusCode() < 400 {
+					//Handle redirect
+					redirect_limit := 5
+					err := client.DoRedirects(req_target, resp_target, redirect_limit)
+					if err == fasthttp.ErrTooManyRedirects {
+						fmt.Printf("Redirect for %s exceded the limit!\n", target)
+					} else if err != nil {
+						//Handle other errors
+						continue
+					}
+
+				}
 			}
 
 			responsePacket, err := io.ReadAll(bytes.NewReader(resp_target.Body()))
@@ -58,7 +71,7 @@ func ScanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
 				//Handle error better
 				continue
 			}
-			fmt.Printf("Response from %s: %s\n", target, responsePacket)
+			fmt.Printf("Response from %s: %s\n", target, responsePacket) //Response to be saved
 			fasthttp.ReleaseResponse(resp_target)
 			fasthttp.ReleaseRequest(req_target)
 		} else {
