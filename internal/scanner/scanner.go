@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/efecankaya/go-port-scanner/data"
 	"github.com/efecankaya/go-port-scanner/internal/modules/banner"
 	"github.com/valyala/fasthttp"
 )
@@ -34,7 +35,7 @@ func ScanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
 			//Might handle this error better
 			continue
 		}
-		fmt.Printf("Discovered open port %d/tcp on %s\n", port, host)
+		fmt.Printf("Discovered open port %d/tcp (%s) on %s\n", port, data.PortToService[port], host)
 
 		if port == 80 || port == 443 {
 			// HTTP(S) request

@@ -15,6 +15,6 @@ func GrabBanner(conn net.Conn, timeout time.Duration) {
 	if err != nil {
 		//fmt.Printf("Error reading banner: %s\n", err)
 	} else {
-		fmt.Printf(" - %s\n", strings.TrimSpace(response))
+		fmt.Printf(" - Banner: %s\n", strings.TrimSpace(response))
 	}
 }
