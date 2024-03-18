@@ -14,11 +14,12 @@ import (
 
 	"github.com/efecankaya/go-port-scanner/internal/scanner"
 	"github.com/efecankaya/go-port-scanner/internal/utils"
+	"github.com/fatih/color"
 )
 
 func main() {
-
-	fmt.Println("TCP port scanner implementation...")
+	welcome_print := color.New(color.FgCyan, color.Bold)
+	welcome_print.Print("  ______   ______    ____    _____                          ______\n /_  __/  / ____/   / __ \\  / ___/  _____  ____ _   ____   / ____/  ____ \n  / /    / /       / /_/ /  \\__ \\  / ___/ / __ `/  / __ \\ / / __   / __ \\\n / /    / /___    / ____/  ___/ / / /__  / /_/ /  / / / // /_/ /  / /_/ /\n/_/     \\____/   /_/      /____/  \\___/  \\__,_/  /_/ /_/ \\____/   \\____/\n")
 	var (
 		usr_inputIP      string
 		usr_domain_input string
