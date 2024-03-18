@@ -28,7 +28,8 @@ func ScanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
 			//fmt.Printf("Invalid port format: %s\n", portStr)
 			continue
 		}
-		conn, err := net.DialTimeout("tcp4", target, timeout)
+
+		conn, err := fasthttp.DialDualStackTimeout(target, timeout)
 		if err != nil {
 			//Might handle this error better
 			continue
@@ -37,28 +38,28 @@ func ScanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
 
 		if port == 80 || port == 443 {
 			// HTTP(S) request
-			req := fasthttp.AcquireRequest()
-			req.SetRequestURI("http://" + target)
-			req.Header.Set("User-Agent", clientHeader)
-			resp := fasthttp.AcquireResponse()
+			req_target := fasthttp.AcquireRequest()
+			req_target.SetRequestURI("http://" + target)
+			req_target.Header.Set("User-Agent", clientHeader)
+			resp_target := fasthttp.AcquireResponse()
 
-			if err := client.DoTimeout(req, resp, timeout); err != nil {
+			if err := client.DoTimeout(req_target, resp_target, 6*timeout); err != nil {
 				//Handle error better
 				continue
 			}
-			if resp.StatusCode() != fasthttp.StatusOK {
+			if resp_target.StatusCode() != fasthttp.StatusOK {
 				//Handle different status codes -- Redirect etc.
 				continue
 			}
 
-			responsePacket, err := io.ReadAll(bytes.NewReader(resp.Body()))
+			responsePacket, err := io.ReadAll(bytes.NewReader(resp_target.Body()))
 			if err != nil {
 				//Handle error better
 				continue
 			}
 			fmt.Printf("Response from %s: %s\n", target, responsePacket)
-			fasthttp.ReleaseResponse(resp)
-			fasthttp.ReleaseRequest(req)
+			fasthttp.ReleaseResponse(resp_target)
+			fasthttp.ReleaseRequest(req_target)
 		} else {
 			// Grabbing banner
 			banner.GrabBanner(conn, timeout)
