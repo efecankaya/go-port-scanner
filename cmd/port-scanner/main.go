@@ -21,13 +21,13 @@ func main() {
 	welcome_print := color.New(color.FgCyan, color.Bold)
 	welcome_print.Print("  ______   ______    ____    _____                          ______\n /_  __/  / ____/   / __ \\  / ___/  _____  ____ _   ____   / ____/  ____ \n  / /    / /       / /_/ /  \\__ \\  / ___/ / __ `/  / __ \\ / / __   / __ \\\n / /    / /___    / ____/  ___/ / / /__  / /_/ /  / / / // /_/ /  / /_/ /\n/_/     \\____/   /_/      /____/  \\___/  \\__,_/  /_/ /_/ \\____/   \\____/\n")
 	var (
-		usr_inputIP      string
-		usr_domain_input string
-		usr_domain_file  string
-		usr_port_scan    string
-		thread_count     int
-		usr_timeout      int
-		wg               sync.WaitGroup
+		usr_inputIP      string         //CIDR IP range from user input
+		usr_domain_input string         //Domain Names from user input
+		usr_domain_file  string         //Domain Names from file
+		usr_port_scan    string         //Ports to be scanned
+		thread_count     int            //Amount of routines to be used
+		usr_timeout      int            //Timeout duration
+		wg               sync.WaitGroup //Syncgroup for goroutines
 	)
 
 	flag.StringVar(&usr_domain_input, "d", "", "Domain Name")
@@ -38,7 +38,7 @@ func main() {
 	flag.IntVar(&usr_timeout, "time", 1, "Seconds of Timeout")
 	flag.Parse()
 
-	if err := utils.ValidateFlags(usr_domain_input, usr_inputIP, usr_domain_file); err != nil {
+	if err := utils.ValidateFlags(usr_domain_input, usr_inputIP, usr_domain_file); err != nil { //Some flags cannot be used together
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		flag.Usage()
 		return
@@ -48,11 +48,11 @@ func main() {
 		fmt.Println("Thread count violation!")
 		return
 	}
-	if usr_timeout < 0 {
+	if usr_timeout < 0 { //Validate timeout
 		fmt.Println("Invalid timeout set!")
 		return
 	}
-	//Parse ports to scan
+	//Parse user provied port range
 	var port_input []int
 
 	portSpecs := strings.Split(usr_port_scan, ",")
@@ -99,7 +99,7 @@ func main() {
 	//Execute Scan
 	var (
 		IP_addresses []string //Target IP addresses
-		err_parse    error
+		err_parse    error    //Error from parsing IP addresses
 	)
 
 	if usr_inputIP != "" { //Perform CIDR IP scan
@@ -120,13 +120,13 @@ func main() {
 			fmt.Println("Error opening file:", err_parse)
 			return
 		}
-		defer file.Close()
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
 			domain := scanner.Text()
 			if ip_address, err := net.LookupHost(domain); err == nil {
 				for i := 0; i < len(ip_address); i++ {
+					fmt.Println(ip_address[i])
 					IP_addresses = append(IP_addresses, ip_address[i])
 				}
 			} else {
@@ -136,8 +136,10 @@ func main() {
 		}
 		if err := scanner.Err(); err != nil {
 			fmt.Println("Error reading file:", err)
+			file.Close()
 			return
 		}
+		file.Close()
 	}
 	//Create targets
 	var targets []string
@@ -147,12 +149,27 @@ func main() {
 			targets = append(targets, target)
 		}
 	}
-	var port_range_dist []int = utils.PortRangeDistribute(len(IP_addresses), port_input, thread_count)
+	var (
+		port_range_dist        []int = utils.PortRangeDistribute(len(IP_addresses), port_input, thread_count) //Amount of targets per routine
+		comm_result_channel          = make(chan []scanner.TargetResult)                                      //Channel to communicate results of each routine
+		comm_up_result_channel       = make(chan bool)                                                        //Channel to communicate status of each routine
+		up_counter                   = len(port_range_dist)                                                   //Counter for routines that are up
+	)
+
 	port_index := 0
-	for i := 0; i < len(port_range_dist); i++ {
+	for i := 0; i < len(port_range_dist); i++ { //Start routines
 		wg.Add(1)
-		go scanner.ScanPort(targets[port_index:port_index+port_range_dist[i]], time.Duration(usr_timeout)*time.Second, &wg)
+		go scanner.ScanPort(comm_up_result_channel, comm_result_channel, targets[port_index:port_index+port_range_dist[i]], time.Duration(usr_timeout)*time.Second, &wg)
 		port_index += port_range_dist[i]
 	}
+	for i := 0; i < len(port_range_dist); i++ { //Recieve status of each routine
+		val_bool := <-comm_up_result_channel
+		if !val_bool {
+			up_counter--
+		}
+	}
 	wg.Wait()
+	for i := 0; i < up_counter; i++ { //Recieve results from each routine that is up
+		fmt.Println(<-comm_result_channel)
+	}
 }
