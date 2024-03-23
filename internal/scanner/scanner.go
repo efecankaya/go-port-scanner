@@ -16,21 +16,11 @@ import (
 
 func ScanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
 	defer wg.Done()
-	client := &fasthttp.Client{
-		MaxConnDuration: timeout,
-	}
+	client := &fasthttp.Client{}
 	clientHeader := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 	for _, target := range targets {
-		host, portStr, err := net.SplitHostPort(target)
-		if err != nil {
-			//fmt.Printf("Invalid target format: %s\n", target)
-			continue
-		}
-		port, err := strconv.Atoi(portStr)
-		if err != nil {
-			//fmt.Printf("Invalid port format: %s\n", portStr)
-			continue
-		}
+		host, portStr, _ := net.SplitHostPort(target)
+		port, _ := strconv.Atoi(portStr)
 
 		conn, err := fasthttp.DialDualStackTimeout(target, timeout)
 		if err != nil {
@@ -43,10 +33,11 @@ func ScanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
 			// HTTP(S) request
 			req_target := fasthttp.AcquireRequest()
 			req_target.SetRequestURI("http://" + target)
+			req_target.SetTimeout(timeout)
 			req_target.Header.Set("User-Agent", clientHeader)
 			resp_target := fasthttp.AcquireResponse()
 
-			if err := client.DoTimeout(req_target, resp_target, 6*timeout); err != nil {
+			if err := client.DoTimeout(req_target, resp_target, timeout); err != nil {
 				//Handle error better
 				continue
 			}
@@ -58,13 +49,25 @@ func ScanPort(targets []string, timeout time.Duration, wg *sync.WaitGroup) {
 					err := client.DoRedirects(req_target, resp_target, redirect_limit)
 					if err == fasthttp.ErrTooManyRedirects {
 						fmt.Printf("Redirect for %s exceded the limit!\n", target)
+						continue
 					} else if err != nil {
 						//Handle other errors
 						continue
 					}
-
+				} else if 400 <= resp_target.StatusCode() && resp_target.StatusCode() < 500 {
+					//Handle client errors
+					fmt.Printf("Client error %d recieved \n", resp_target.StatusCode())
+					continue
+				} else if 500 <= resp_target.StatusCode() && resp_target.StatusCode() < 600 {
+					fmt.Printf("Server error %d recieved \n", resp_target.StatusCode())
+					continue
 				}
 			}
+			headers := make(map[string]string)
+			resp_target.Header.VisitAll(func(key, value []byte) { //Gather headers from response
+				headers[string(key)] = string(value)
+			})
+			fmt.Printf("Headers from %s: %v\n", target, headers)
 
 			responsePacket, err := io.ReadAll(bytes.NewReader(resp_target.Body()))
 			if err != nil {
