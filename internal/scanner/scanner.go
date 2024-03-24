@@ -10,21 +10,24 @@ import (
 	"time"
 
 	"github.com/efecankaya/go-port-scanner/internal/modules/banner"
+	techfinder "github.com/efecankaya/go-port-scanner/internal/modules/tech_finder"
+	"github.com/fatih/color"
 	"github.com/valyala/fasthttp"
 )
 
 type TargetResult struct {
-	HostIP             string            //IP address of the target
-	Port               int               //Port number of the target
-	Banner             string            //Banner of the target
-	http_valid         bool              //If contains valid http response
-	http_headers       map[string]string //HTTP headers
-	http_response_body string            //HTTP response body
-	OperatingSystem    string            //Operating system of the target
-	Error              string            //Discarded targets
+	HostIP             string //IP address of the target
+	Port               int    //Port number of the target
+	Banner             string //Banner of the target
+	http_valid         bool   //If contains valid http response
+	http_headers       string //HTTP headers
+	http_response_body string //HTTP response body
+	OperatingSystem    string //Operating system of the target
+	Error              string //Discarded targets
 }
 
 func ScanPort(comm_up_result_channel chan bool, comm_result_channel chan []TargetResult, targets []string, timeout time.Duration, wg *sync.WaitGroup) {
+	error_print := color.New(color.FgRed, color.Bold)
 	client := &fasthttp.Client{}
 	clientHeader := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 	ret_targets_results := make([]TargetResult, 0)
@@ -38,7 +41,6 @@ func ScanPort(comm_up_result_channel chan bool, comm_result_channel chan []Targe
 			target_identify.Error = err.Error()
 			continue
 		}
-		//fmt.Printf("Discovered open port %d/tcp (%s) on %s\n", port, data.PortToService[port], host)
 		target_identify.HostIP = host
 		target_identify.Port = port
 
@@ -78,11 +80,12 @@ func ScanPort(comm_up_result_channel chan bool, comm_result_channel chan []Targe
 					continue
 				}
 			}
+
 			headers := make(map[string]string)
 			resp_target.Header.VisitAll(func(key, value []byte) { //Gather headers from response
 				headers[string(key)] = string(value)
 			})
-			//fmt.Printf("Headers from %s: %v\n", target, headers)
+			headersString := fmt.Sprintf("%v", headers)
 
 			responsePacket, err := io.ReadAll(bytes.NewReader(resp_target.Body()))
 			if err != nil {
@@ -91,11 +94,11 @@ func ScanPort(comm_up_result_channel chan bool, comm_result_channel chan []Targe
 				conn.Close()
 				continue
 			}
-			//fmt.Printf("Response from %s: %s\n", target, responsePacket) //Response to be saved
+
 			fasthttp.ReleaseResponse(resp_target)
 			fasthttp.ReleaseRequest(req_target)
 			target_identify.http_valid = true
-			target_identify.http_headers = headers
+			target_identify.http_headers = headersString
 			target_identify.http_response_body = string(responsePacket)
 
 		} else {
@@ -110,6 +113,15 @@ func ScanPort(comm_up_result_channel chan bool, comm_result_channel chan []Targe
 		}
 		ret_targets_results = append(ret_targets_results, target_identify)
 		conn.Close()
+	}
+	//Analyze for http/https results for provided signatures
+	for _, target := range ret_targets_results {
+		if target.http_valid { //Struct contains http/https body
+			http_tag_analyze := techfinder.HttpAnalyze(target.http_response_body, target.http_headers)
+			for _, tag := range http_tag_analyze {
+				error_print.Println(tag)
+			}
+		}
 	}
 	if len(ret_targets_results) > 0 { //If valuable results are found
 		fmt.Println("Results found")

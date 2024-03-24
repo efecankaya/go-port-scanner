@@ -170,6 +170,7 @@ func main() {
 	}
 	wg.Wait()
 	for i := 0; i < up_counter; i++ { //Recieve results from each routine that is up
-		fmt.Println(<-comm_result_channel)
+		ret_val := <-comm_result_channel
+		fmt.Println(ret_val)
 	}
 }
