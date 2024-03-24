@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"strings"
@@ -66,34 +67,6 @@ func PortRangeDistribute(IP_Count int, port_array []int, thread_count int) []int
 	return port_range_dist
 }
 
-func renderNode(sb *strings.Builder, n *html.Node) {
-	// Render opening tag
-	sb.WriteString("<")
-	sb.WriteString(n.Data)
-	for _, attr := range n.Attr {
-		sb.WriteString(" ")
-		sb.WriteString(attr.Key)
-		sb.WriteString("=\"")
-		sb.WriteString(attr.Val)
-		sb.WriteString("\"")
-	}
-	sb.WriteString(">")
-
-	// Render content within the tag
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == html.TextNode {
-			sb.WriteString(strings.ReplaceAll(c.Data, "\n", " "))
-		} else if c.Type == html.ElementNode {
-			renderNode(sb, c) // Recursively render child nodes
-		}
-	}
-
-	// Render closing tag
-	sb.WriteString("</")
-	sb.WriteString(n.Data)
-	sb.WriteString(">")
-}
-
 // ExtractTags extracts certain tags from the given HTML.
 func ExtractTags(htmlStr string, tagNames []string) ([]string, error) {
 	var content []string
@@ -115,9 +88,12 @@ func ExtractTags(htmlStr string, tagNames []string) ([]string, error) {
 	var extract func(*html.Node)
 	extract = func(n *html.Node) {
 		if n.Type == html.ElementNode && containsTag(n.Data, tagNames) {
-			var sb strings.Builder
-			renderNode(&sb, n)
-			content = append(content, sb.String())
+			var buf bytes.Buffer
+			if err := html.Render(&buf, n); err != nil {
+				fmt.Println("Error rendering HTML:", err)
+				return
+			}
+			content = append(content, buf.String())
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			extract(c)

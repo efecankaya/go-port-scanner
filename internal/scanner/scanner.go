@@ -16,14 +16,15 @@ import (
 )
 
 type TargetResult struct {
-	HostIP             string //IP address of the target
-	Port               int    //Port number of the target
-	Banner             string //Banner of the target
-	http_valid         bool   //If contains valid http response
-	http_headers       string //HTTP headers
-	http_response_body string //HTTP response body
-	OperatingSystem    string //Operating system of the target
-	Error              string //Discarded targets
+	HostIP              string //IP address of the target
+	Port                int    //Port number of the target
+	Banner              string //Banner of the target
+	HttpValid           bool   //If contains valid http response
+	HttpResponseHeader  string //HTTP headers
+	HttpResponseCookies string //HTTP cookies
+	HttpResponseBody    string //HTTP response body
+	OperatingSystem     string //Operating system of the target
+	Error               string //Discarded targets
 }
 
 func ScanPort(comm_up_result_channel chan bool, comm_result_channel chan []TargetResult, targets []string, timeout time.Duration, wg *sync.WaitGroup) {
@@ -80,12 +81,19 @@ func ScanPort(comm_up_result_channel chan bool, comm_result_channel chan []Targe
 					continue
 				}
 			}
-
+			//Gather headers from response
 			headers := make(map[string]string)
-			resp_target.Header.VisitAll(func(key, value []byte) { //Gather headers from response
+			resp_target.Header.VisitAll(func(key, value []byte) {
 				headers[string(key)] = string(value)
 			})
 			headersString := fmt.Sprintf("%v", headers)
+
+			//Gather cookies from response
+			cookies := make(map[string]string)
+			resp_target.Header.VisitAllCookie(func(key, value []byte) {
+				cookies[string(key)] = string(value)
+			})
+			httpCookies := fmt.Sprintf("%v", cookies)
 
 			responsePacket, err := io.ReadAll(bytes.NewReader(resp_target.Body()))
 			if err != nil {
@@ -97,9 +105,10 @@ func ScanPort(comm_up_result_channel chan bool, comm_result_channel chan []Targe
 
 			fasthttp.ReleaseResponse(resp_target)
 			fasthttp.ReleaseRequest(req_target)
-			target_identify.http_valid = true
-			target_identify.http_headers = headersString
-			target_identify.http_response_body = string(responsePacket)
+			target_identify.HttpValid = true
+			target_identify.HttpResponseHeader = headersString
+			target_identify.HttpResponseBody = string(responsePacket)
+			target_identify.HttpResponseCookies = httpCookies
 
 		} else {
 			// Grabbing banner
@@ -109,15 +118,15 @@ func ScanPort(comm_up_result_channel chan bool, comm_result_channel chan []Targe
 				conn.Close()
 				continue
 			}
-			target_identify.http_valid = false
+			target_identify.HttpValid = false
 		}
 		ret_targets_results = append(ret_targets_results, target_identify)
 		conn.Close()
 	}
 	//Analyze for http/https results for provided signatures
 	for _, target := range ret_targets_results {
-		if target.http_valid { //Struct contains http/https body
-			http_tag_analyze := techfinder.HttpAnalyze(target.http_response_body, target.http_headers)
+		if target.HttpValid { //Struct contains http/https body
+			http_tag_analyze := techfinder.HttpAnalyze(target.HttpResponseBody, target.HttpResponseHeader)
 			for _, tag := range http_tag_analyze {
 				error_print.Println(tag)
 			}
